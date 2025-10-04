@@ -176,7 +176,7 @@ async def generate_recommendation_endpoint():
 
 
 # --- API Endpoint 1: Generate Medical Report (/get-medical-condition) ---
-@app.post("/get-medical-condition_combined", summary="Generate Medical Report from Lab Data")
+@app.post("/get-medical-condition_recommendations", summary="Generate Recommendations from Lab Data")
 async def get_medical_recomendations_endpoint(request_body: MedicalReportRequest):
     """
     Fetches raw lab data from an external API, integrates it with a biomarker master table,
