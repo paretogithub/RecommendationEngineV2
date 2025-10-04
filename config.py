@@ -1,7 +1,5 @@
 
 # Define the AWS region and Secrets Manager secret name
-aws_region = 'ap-south-1'
-secret_name = 'Ayushmati_Keys'  
 
 BUCKET ='paretobucket'
 
