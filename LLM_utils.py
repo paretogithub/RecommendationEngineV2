@@ -5,6 +5,11 @@ import boto3
 
 from medical_utils import read_excel_from_s3, get_aws_credentials_from_secrets_manager
 from config import *
+import os
+
+# Fetch env vars from App Runner
+secret_name = os.getenv("AWS_SECRET_NAME")
+region = os.getenv("AWS_REGION")
 
 # Retrieve AWS credentials from Secrets Manager
 aws_access_key_id, aws_secret_access_key = get_aws_credentials_from_secrets_manager(secret_name, aws_region)
