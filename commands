@@ -1,0 +1,14 @@
+py -m venv agentvenv
+agentvenv/scripts/activate  
+
+pip install -r requirements.txt
+
+py -m condition_agents.exercise_recommendation
+py app.py
+
+uvicorn main_api:app --reload --host 0.0.0.0 --port 8000
+
+http://localhost:8000/docs
+
+
+
