@@ -7,33 +7,17 @@ langchain_core
 langchain_community
 langchain_ollama
 
-# Semantic Search and Retrieval
-faiss-cpu
-pymupdf
 tqdm
 xmltodict
-pypdf
-PyPDF2
-pdfplumber
-pdfkit
 
 fuzzywuzzy
-
-seaborn
-plotly
 python-docx
-fpdf
-striprtf
-scikit-learn
 
 langgraph
 graphviz
 requests
 
 ipython
-streamlit
-flask 
-flask_cors 
 fastapi 
 uvicorn[standard]
 pydantic
