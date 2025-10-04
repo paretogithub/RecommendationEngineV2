@@ -8,10 +8,15 @@ from langchain.prompts import PromptTemplate
 import json
 import re
 
+import os 
+
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "").rstrip("/")
+OLLAMA_model = os.getenv("DEFAULT_MODEL", "")
+
 #llm = ChatOllama(model="llama3.2:3b", temperature=0)
 llm = ChatOllama(
-    model="llama3.2:3b",temperature=0,
-    base_url="http://43.204.83.112:11434"
+    model=OLLAMA_model,temperature=0,
+    base_url=OLLAMA_BASE_URL
 )
 
 
