@@ -5,15 +5,11 @@ from datetime import datetime
 import json
 from langchain_ollama import ChatOllama
 import math 
-import os 
-
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "").rstrip("/")
-OLLAMA_model = os.getenv("DEFAULT_MODEL", "")
 
 #llm = ChatOllama(model="llama3.2:3b", temperature=0)
 llm = ChatOllama(
-    model=OLLAMA_model,temperature=0,
-    base_url=OLLAMA_BASE_URL
+    model="llama3.1:8b",temperature=0,
+    base_url="http://43.204.83.112:11434"
 )
 
 
@@ -231,30 +227,30 @@ def classify_recommendation_deterministic(rec: Dict, patient_profile: Dict, labs
 ## Add note for all medical history recomendations so that we know the whom not recoomend
 ## example "Intermittent Fasting (14:10 or 16:8 protocol) (⚠️ Cannot validate: patient taking insulin medication)"
 
-def attach_presence_notes(rec: Dict) -> str:
-    """
-    If recommendation has decision 'presence_unknown_but_included',
-    append its WHEN_NOT condition(s) as a warning note.
-    """
-    text = rec.get("recommendations") or rec.get("recommendation") or ""
-    audit = rec.get("audit", {})
+# def attach_presence_notes(rec: Dict) -> str:
+#     """
+#     If recommendation has decision 'presence_unknown_but_included',
+#     append its WHEN_NOT condition(s) as a warning note.
+#     """
+#     text = rec.get("recommendations") or rec.get("recommendation") or ""
+#     audit = rec.get("audit", {})
 
-    if audit.get("decision") == "presence_unknown_but_included":
-        when_not_eval = audit.get("when_not_eval", [])
-        # collect only conditions not validated
-        unvalidated = [
-            cond["cond"]
-            for cond in when_not_eval
-            if  cond.get("deterministic") is None   ##or cond.get("deterministic") is False 
-        ]
-        if unvalidated:
-            return f"{text} (Cannot validate the condition: {', '.join(unvalidated)})"
+#     if audit.get("decision") == "presence_unknown_but_included":
+#         when_not_eval = audit.get("when_not_eval", [])
+#         # collect only conditions not validated
+#         unvalidated = [
+#             cond["cond"]
+#             for cond in when_not_eval
+#             if  cond.get("deterministic") is None   ##or cond.get("deterministic") is False 
+#         ]
+#         if unvalidated:
+#             return f"{text} (Cannot validate the condition: {', '.join(unvalidated)})"
     
-        # raw_cond = audit.get("when_not_raw") or audit.get("when_to_raw") or ""
-        # if raw_cond:
-        #     return f"{text} (Cannot validate the condition: {raw_cond})"
+#         # raw_cond = audit.get("when_not_raw") or audit.get("when_to_raw") or ""
+#         # if raw_cond:
+#         #     return f"{text} (Cannot validate the condition: {raw_cond})"
 
-    return text
+#     return text
 
 ######
 # ---------------- Stage 1: Deterministic filtering ----------------
@@ -286,13 +282,16 @@ def run_deterministic_stage(state: Dict[str, Any]) -> Dict[str, List[Dict]]:
                 # print('status',status)
                 # print('audit',audit)
                 
-                if status != "drop":
+                #if status != "drop":
+                if status not in ["drop", "drop_due_to_when_not", "drop_due_to_when_to_false"]:
                     entry = rec.copy()
                     entry["status"] = status
                     entry["audit"] = audit
 
                     # ---------------- Attach presence notes if needed ----------------
-                    entry["final_text"] = attach_presence_notes(entry)
+                    #entry["final_text"] = attach_presence_notes(entry)
+                    #print(entry)
+                    entry["final_text"] = entry.get("recommendations") or entry.get("recommendation") or ""
 
                     validated_data[domain].append(entry)
     return validated_data
@@ -336,6 +335,7 @@ def format_recommendations(domain_list: List[Dict], patient_data: Dict[str, Any]
     return json.dumps(formatted, indent=2)
 
 # ---------------- LLM Prompt ----------------
+
 CROSS_VALIDATOR_PROMPT = """
 You are a healthcare validation system. 
 
@@ -348,21 +348,37 @@ Each recommendation has metadata fields:
 
 Your job is to strictly filter recommendations according to these rules:
 
----------------- STRICT VALIDATION RULES(HARD) ----------------
+---------------- STRICT VALIDATION RULES (HARD) ----------------
 
-1. KEEP a recommendation ONLY IF:
-   - All conditions in `When_to_Recommend` (if present) are satisfied by the patient profile.
-   - NONE of the conditions in `When_Not_to_Recommend` are satisfied.
+1. Extract age conditions from `When_to_Recommend` and `When_Not_to_Recommend`.
+2. Apply numeric comparison strictly:
+   - Examples:
+     - "Age > 50" → patient.age > 50
+     - "Age < 18" → patient.age < 18
+     - "Age between 30-50" → 30 <= patient.age <= 50
+3. Exclude a recommendation immediately if:
+   - The patient violates a `When_Not_to_Recommend` age condition.
+   - The patient does not satisfy a `When_to_Recommend` age condition.
+4. If no age condition exists, or the patient satisfies it → KEEP and proceed.
 
-2. DROP a recommendation if:
-   - ANY condition in `When_Not_to_Recommend` is satisfied.
-   - ALL conditions in `When_to_Recommend` are not satisfied (if `When_to_Recommend` exists).
 
-3. DO NOT change the text of the recommendation in any way.
-4. DO NOT include explanations, reasoning, notes, or metadata.
-5. DO NOT add anything extra. Only output valid recommendations.
-6. Deduplicate recommendations across domains. Place each recommendation in the most relevant domain.
-7. If a recommendation has a note "(Cannot validate the condition: ...)" in its text (i.e., presence-unknown), **always include it** under the correct domain. Do not remove or modify it.
+---------------- OTHER VALIDATION RULES (SOFT) ----------------
+
+1. OTHER CONDITIONS (SOFT RULES):
+   - For any lab, comorbidity, medication, or symptom conditions in `When_to_Recommend`:
+       • If the patient profile shows that condition (e.g., Homocysteine:Significantly_Increased), KEEP the recommendation.
+       • If the condition is not present in the patient profile, KEEP the recommendation anyway.
+   - For any conditions in `When_Not_to_Recommend`:
+       • Only EXCLUDE the recommendation if the patient profile clearly satisfies the NOT condition.
+       • If the patient does NOT meet the NOT condition, KEEP the recommendation.
+   - Do NOT drop a recommendation just because a condition exists in `When_to_Recommend` or `When_Not_to_Recommend` but is missing in the patient profile.
+
+---------------- FINAL RULES ----------------
+
+1.DO NOT change the recommendation text.
+2.DO NOT include explanations, reasoning, or metadata.
+3.DO NOT output commentary — only the recommendations.
+4.Deduplicate across domains; keep each recommendation under its correct heading.
 
 ---------------- OUTPUT FORMAT ----------------
 
@@ -392,8 +408,10 @@ Supplement:
 - Start a chromium supplement
 
 IMPORTANT: Output MUST follow this format exactly. Do not add any extra text, reasoning, or commentary. Only valid recommendations as bullets under the correct headings.
-"""
+and  Only remove a recommendation if the patient clearly violates a strict age rule or clearly satisfies a NOT condition. 
+Do NOT remove recommendations if the patient does not meet a soft condition. Always keep the recommendation text exactly as-is.
 
+"""
 
 # ---------------- Stage 2: Cross-Validator ----------------
 # ---------------- Full Pipeline: Deterministic + LLM Cross-Validator ----------------
@@ -419,8 +437,14 @@ def cross_validator_agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
         return state
 
     # ---------------- Stage 2: LLM cross-validator ----------------
-    patient_rows = state.get("patient_data", [])
-    patient_profile = patient_rows[0] if patient_rows else {}
+    # patient_rows = state.get("patient_data", [])
+    # print(patient_rows)
+    # patient_profile = patient_rows[0] if patient_rows else {}
+    # print(patient_profile)
+    
+    patient_profile = state["patient_data"][0]  # Single consolidated profile
+    #print("🧬 Patient profile sent to LLM:")
+    #print(json.dumps(patient_profile, indent=2))
 
     validation_query = f"""
 Patient profile: {json.dumps(patient_profile, indent=2)}
@@ -474,3 +498,6 @@ Patient profile: {json.dumps(patient_profile, indent=2)}
         state["cross_validated"] = "Nutrition:\n\nExercise:\n\nLifestyle:\n\nSupplement:\n"
 
     return state
+
+
+
